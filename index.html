@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sylabowe balony</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.png">
+    <style>
+        /* Główne style wymuszone przez instrukcję */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #ffffff;
+            color: #333;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #app {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* EKRAN STARTOWY */
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        
+        .bg-balloons {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            overflow: hidden;
+            z-index: -1;
+        }
+        
+        .bg-balloon {
+            position: absolute;
+            border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+            opacity: 0.3;
+        }
+
+        .start-btn {
+            padding: 20px 40px;
+            font-size: 32px;
+            font-family: Arial, sans-serif;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+            box-shadow: 0 8px 15px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+
+        .start-btn:active { transform: scale(0.95); }
+
+        /* EKRAN GRY */
+        #game-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+        }
+
+        #header {
+            text-align: center;
+            padding: 20px;
+            font-size: 28px;
+            border-bottom: 2px solid #eee;
+        }
+
+        #target-display {
+            font-weight: bold;
+            color: #d32f2f;
+            font-size: 36px;
+        }
+
+        #score-display {
+            font-weight: bold;
+            color: #1976d2;
+        }
+
+        #play-area {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 100px);
+        }
+
+        .balloon {
+            position: absolute;
+            border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: inset -5px -5px 15px rgba(0,0,0,0.2), 0 5px 10px rgba(0,0,0,0.1);
+            transition: transform 0.1s, top 2s ease-in;
+        }
+
+        .balloon::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 15px;
+            background-color: #999;
+        }
+
+        .balloon.popped {
+            transform: scale(0);
+            transition: transform 0.1s;
+        }
+
+        .balloon.fly-up {
+            top: -200px !important;
+        }
+
+        /* EKRAN KOŃCOWY */
+        #end-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 20;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #huge-syllable {
+            font-size: 150px;
+            font-weight: bold;
+            color: #4CAF50;
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="start-screen">
+        <div class="bg-balloons" id="bg-balloons"></div>
+        <button class="start-btn" onclick="startGame()">Rozpocznij Grę</button>
+    </div>
+
+    <div id="game-screen">
+        <div id="header">
+            Rozbij wszystkie balony oprócz tych z sylabą: <span id="target-display"></span>
+            <br>
+            Wynik: <span id="score-display">0</span>
+        </div>
+        <div id="play-area"></div>
+    </div>
+
+    <div id="end-overlay">
+        <div id="huge-syllable"></div>
+    </div>
+</div>
+
+<script>
+    // --- KONFIGURACJA ---
+    // Twój dodany link do arkusza Google Sheets z sylabami
+    const GOOGLE_SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTe2PjBIM3fnfwHKBQJWeIGk4HWkyIi68TslThSjoDFnYKc_1MzZWy2b24NiU-k1LZnPGg2gWGUw3r1/pub?gid=0&single=true&output=csv'; 
+    
+    // Zapasowa lista sylab, gdyby arkusz nie działał
+    let syllablesList = ['MA', 'PA', 'TA', 'DA', 'BA', 'KA', 'LA', 'SA', 'WA', 'ZA', 'RO', 'BO', 'TO', 'KO', 'NO'];
+    
+    // Stan gry
+    let currentTarget = '';
+    let score = 0;
+    let badBalloonsLeft = 15;
+    let isTransitioning = false;
+
+    // --- SYSTEM DŹWIĘKOWY (Web Audio API) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playFallSound() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3); // Dźwięk spadania
+        
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    }
+
+    function playErrorSound() {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2); // Szybki błąd
+        
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.2);
+    }
+
+    // --- SYSTEM MOWY (Web Speech API) ---
+    function speak(text, callback) {
+        window.speechSynthesis.cancel(); // Przerywa poprzednie mowy
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'pl-PL';
+        utterance.rate = 0.9; // Lekko zwolnione dla dzieci
+        
+        if (callback) {
+            utterance.onend = callback;
+        }
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // --- POBIERANIE DANYCH Z GOOGLE SHEETS ---
+    async function loadSyllables() {
+        if (!GOOGLE_SHEETS_CSV_URL) return;
+        try {
+            const response = await fetch(GOOGLE_SHEETS_CSV_URL);
+            const data = await response.text();
+            const parsed = data.split('\n').map(row => row.split(',')[0].trim().toUpperCase()).filter(s => s);
+            if (parsed.length > 5) {
+                syllablesList = parsed;
+            }
+        } catch (e) {
+            console.log("Nie udało się pobrać danych z Google Sheets, używam listy zapasowej.", e);
+        }
+    }
+
+    // --- GENEROWANIE EKRANU STARTOWEGO ---
+    function createBgBalloons() {
+        const container = document.getElementById('bg-balloons');
+        const colors = ['#FF9999', '#99CCFF', '#99FF99', '#FFFF99', '#CC99FF'];
+        for(let i=0; i<30; i++) {
+            let b = document.createElement('div');
+            b.className = 'bg-balloon';
+            let size = Math.random() * 80 + 40;
+            b.style.width = size + 'px';
+            b.style.height = (size * 1.2) + 'px';
+            b.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+            b.style.left = Math.random() * 100 + 'vw';
+            b.style.top = Math.random() * 100 + 'vh';
+            container.appendChild(b);
+        }
+    }
+
+    // --- LOGIKA GRY ---
+    async function startGame() {
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display = 'block';
+        
+        // Inicjalizacja dźwięku przy pierwszym kliknięciu użytkownika
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        
+        await loadSyllables();
+        startLevel();
+    }
+
+    function startLevel() {
+        isTransitioning = false;
+        badBalloonsLeft = 15;
+        document.getElementById('end-overlay').style.display = 'none';
+        
+        // Losowanie prawidłowej sylaby
+        currentTarget = syllablesList[Math.floor(Math.random() * syllablesList.length)];
+        document.getElementById('target-display').innerText = currentTarget;
+        updateScoreDisplay();
+
+        // Mowa startowa
+        speak(`Rozbij wszystkie balony oprócz tych z sylabą ${currentTarget}`);
+
+        generateBalloons();
+    }
+
+    function updateScoreDisplay() {
+        document.getElementById('score-display').innerText = score;
+    }
+
+    function generateBalloons() {
+        const playArea = document.getElementById('play-area');
+        playArea.innerHTML = '';
+        
+        let levelSyllables = [];
+        // 5 prawidłowych
+        for(let i=0; i<5; i++) levelSyllables.push(currentTarget);
+        
+        // 15 nieprawidłowych
+        let wrongSyllables = syllablesList.filter(s => s !== currentTarget);
+        for(let i=0; i<15; i++) {
+            levelSyllables.push(wrongSyllables[Math.floor(Math.random() * wrongSyllables.length)]);
+        }
+        
+        // Mieszanie tablicy
+        levelSyllables.sort(() => Math.random() - 0.5);
+
+        const colors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#1A535C', '#FF9F1C', '#D4A373', '#9B5DE5'];
+
+        levelSyllables.forEach(syl => {
+            const balloon = document.createElement('div');
+            balloon.className = 'balloon';
+            
+            // Losowy rozmiar (szerokość od 70 do 120px)
+            let width = Math.random() * 50 + 70;
+            balloon.style.width = width + 'px';
+            balloon.style.height = (width * 1.25) + 'px';
+            balloon.style.fontSize = (width / 3) + 'px';
+            balloon.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+            
+            // Losowa pozycja (odstęp od krawędzi, żeby nie wystawały)
+            balloon.style.left = Math.random() * 80 + 10 + '%';
+            balloon.style.top = Math.random() * 70 + 10 + '%';
+            
+            balloon.innerText = syl;
+            balloon.dataset.syl = syl;
+
+            balloon.onclick = () => handleBalloonClick(balloon);
+            
+            playArea.appendChild(balloon);
+        });
+    }
+
+    function handleBalloonClick(balloon) {
+        if (isTransitioning || balloon.classList.contains('popped')) return;
+
+        const syl = balloon.dataset.syl;
+
+        if (syl !== currentTarget) {
+            // Dobry klik (rozbito zły balon)
+            score += 1;
+            badBalloonsLeft -= 1;
+            playFallSound();
+            balloon.classList.add('popped');
+            
+            // Usunięcie balonu z DOM po animacji
+            setTimeout(() => { balloon.remove(); }, 100);
+
+            if (badBalloonsLeft === 0) {
+                levelComplete();
+            }
+        } else {
+            // Zły klik (rozbito balon docelowy)
+            score -= 1;
+            playErrorSound();
+            
+            // Efekt wizualny błędu - lekkie wstrząśnięcie
+            balloon.style.transform = 'scale(0.9) rotate(5deg)';
+            setTimeout(() => { balloon.style.transform = ''; }, 100);
+        }
+        
+        updateScoreDisplay();
+    }
+
+    function levelComplete() {
+        isTransitioning = true;
+        
+        // Pozostałe balony (prawidłowe) odlatują
+        const remainingBalloons = document.querySelectorAll('.balloon');
+        remainingBalloons.forEach(b => {
+            b.classList.add('fly-up');
+        });
+
+        // Pokazanie dużej sylaby
+        setTimeout(() => {
+            const overlay = document.getElementById('end-overlay');
+            overlay.style.display = 'flex';
+            document.getElementById('huge-syllable').innerText = currentTarget;
+            
+            speak(`Świetnie ci poszło, zostały tylko balony z sylabą ${currentTarget}`, () => {
+                setTimeout(() => {
+                    speak('Spróbujmy z inną sylabą', () => {
+                        startLevel();
+                    });
+                }, 250); // Ćwierć sekundy przerwy
+            });
+        }, 1000); // Czas na odlot balonów
+    }
+
+    // Inicjalizacja tła startowego
+    createBgBalloons();
+
+</script>
+</body>
+</html>
