@@ -86,15 +86,15 @@
 
         #target-display {
             font-weight: bold;
-            color: #00b300; /* Żywy, wyraźny zielony */
-            font-size: 72px; /* Dwukrotnie powiększona */
+            color: #00b300; 
+            font-size: 72px; 
             display: block;
             margin-top: 10px;
         }
 
         #play-area {
             position: relative;
-            flex-grow: 1; /* Zajmuje resztę ekranu pod nagłówkiem */
+            flex-grow: 1; 
             width: 100%;
             overflow: hidden;
         }
@@ -106,8 +106,8 @@
             justify-content: center;
             align-items: center;
             font-weight: bold;
-            color: #fff; /* Biały tekst lepiej widać na bardzo jaskrawych tłach */
-            text-shadow: 1px 1px 3px rgba(0,0,0,0.5); /* Cień dla lepszej czytelności */
+            color: #fff; 
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.5); 
             cursor: pointer;
             box-shadow: inset -5px -5px 15px rgba(0,0,0,0.3), 0 5px 10px rgba(0,0,0,0.2);
             transition: transform 0.1s, top 2s ease-in;
@@ -177,7 +177,8 @@
     // --- KONFIGURACJA ---
     const GOOGLE_SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTe2PjBIM3fnfwHKBQJWeIGk4HWkyIi68TslThSjoDFnYKc_1MzZWy2b24NiU-k1LZnPGg2gWGUw3r1/pub?gid=0&single=true&output=csv'; 
     
-    let syllablesList = ['MA', 'PA', 'TA', 'DA', 'BA', 'KA', 'LA', 'SA', 'WA', 'ZA', 'RO', 'BO', 'TO', 'KO', 'NO'];
+    // Nowa zapasowa lista sylab, ujednolicona do wielkich liter
+    let syllablesList = ['DA', 'TA', 'RO', 'RE', 'KU', 'LA', 'GO', 'NO'];
     
     let currentTarget = '';
     let badBalloonsLeft = 15;
@@ -238,14 +239,20 @@
     async function loadSyllables() {
         if (!GOOGLE_SHEETS_CSV_URL) return;
         try {
-            const response = await fetch(GOOGLE_SHEETS_CSV_URL);
+            // Dodajemy unikalny znacznik czasu do URL, aby wymusić ominięcie pamięci podręcznej przeglądarki
+            const cacheBuster = '&t=' + new Date().getTime();
+            const response = await fetch(GOOGLE_SHEETS_CSV_URL + cacheBuster);
+            
             const data = await response.text();
+            // Ignorujemy puste wiersze i upewniamy się, że to wielkie litery
             const parsed = data.split('\n').map(row => row.split(',')[0].trim().toUpperCase()).filter(s => s);
-            if (parsed.length > 5) {
+            
+            // Warunek długości (powyżej 5 sztuk) pozwala uniknąć wczytania np. samego nagłówka czy błędu
+            if (parsed.length >= 5) {
                 syllablesList = parsed;
             }
         } catch (e) {
-            console.log("Nie udało się pobrać danych z Google Sheets, używam listy zapasowej.", e);
+            console.log("Nie udało się pobrać danych z Google Sheets, używam najświeższej listy zapasowej.", e);
         }
     }
 
@@ -300,8 +307,10 @@
         let levelSyllables = [];
         for(let i=0; i<5; i++) levelSyllables.push(currentTarget);
         
+        // Zapewniamy różnorodność poprzez tasowanie tylko nieprawidłowych sylab
         let wrongSyllables = syllablesList.filter(s => s !== currentTarget);
         for(let i=0; i<15; i++) {
+            // Jeśli lista w arkuszu jest bardzo krótka, losujemy wielokrotnie te same nieprawidłowe sylaby
             levelSyllables.push(wrongSyllables[Math.floor(Math.random() * wrongSyllables.length)]);
         }
         
