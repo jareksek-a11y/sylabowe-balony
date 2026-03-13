@@ -196,8 +196,8 @@
     // --- KONFIGURACJA ---
     const GOOGLE_SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTe2PjBIM3fnfwHKBQJWeIGk4HWkyIi68TslThSjoDFnYKc_1MzZWy2b24NiU-k1LZnPGg2gWGUw3r1/pub?gid=0&single=true&output=csv'; 
     
-    // Pusta lista na start (brak listy zapasowej)
     let syllablesList = [];
+    let recentTargets = []; // Pamięć ostatnich sylab
     
     let currentTarget = '';
     let badBalloonsLeft = 15;
@@ -308,7 +308,6 @@
         
         await loadSyllables();
         
-        // Jeśli lista jest pusta po próbie pobrania, przerywamy start
         if (syllablesList.length < 5) return;
 
         document.getElementById('game-screen').style.display = 'flex';
@@ -320,7 +319,29 @@
         badBalloonsLeft = 15;
         document.getElementById('end-overlay').style.display = 'none';
         
-        currentTarget = syllablesList[Math.floor(Math.random() * syllablesList.length)];
+        // --- LOGIKA LOSOWANIA Z HISTORIĄ ---
+        // Ustalamy limit pamięci (max 10, ale zawsze o 1 mniej niż długość listy, by uniknąć zapętlenia)
+        let maxHistory = Math.min(10, syllablesList.length - 1);
+        
+        // Filtrujemy sylaby, wykluczając te z historii
+        let availableSyllables = syllablesList.filter(s => !recentTargets.includes(s));
+        
+        // Awaryjnie, jeśli jakimś cudem lista byłaby pusta, resetujemy ją
+        if (availableSyllables.length === 0) {
+            availableSyllables = syllablesList;
+            recentTargets = []; 
+        }
+        
+        // Losujemy nową sylabę z dostępnych
+        currentTarget = availableSyllables[Math.floor(Math.random() * availableSyllables.length)];
+        
+        // Dodajemy wylosowaną do historii i obcinamy najstarsze, jeśli przekraczamy limit
+        recentTargets.push(currentTarget);
+        if (recentTargets.length > maxHistory) {
+            recentTargets.shift(); // Usuwa najstarszy element z początku tablicy
+        }
+        // ------------------------------------
+
         document.getElementById('target-display').innerText = currentTarget;
 
         speak(`Rozbij wszystkie balony oprócz tych z sylabą ${currentTarget}`);
